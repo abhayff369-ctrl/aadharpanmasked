@@ -1,13 +1,6 @@
 from flask import Flask, request, jsonify
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
+from playwright.sync_api import sync_playwright
 import re
-import time
-import os
 
 app = Flask(__name__)
 
@@ -32,55 +25,26 @@ def aadhaar_pan():
 
     try:
 
-        chrome_options = Options()
+        with sync_playwright() as p:
 
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
+            browser = p.chromium.launch(headless=True)
 
-        chrome_bin = os.environ.get("GOOGLE_CHROME_BIN")
-        chrome_driver = os.environ.get("CHROMEDRIVER_PATH")
+            page = browser.new_page()
 
-        if chrome_bin:
-            chrome_options.binary_location = chrome_bin
+            page.goto("https://panfindservice.com/search_pan.php")
 
-        service = Service(chrome_driver)
+            # Fill form
+            page.fill('input[name="aadhaar"]', aadhaar)
+            page.fill('input[name="mobile"]', mobile)
 
-        driver = webdriver.Chrome(
-            service=service,
-            options=chrome_options
-        )
+            # Click Search
+            page.click('button:has-text("Search")')
 
-        driver.get("https://panfindservice.com/search_pan.php")
+            page.wait_for_timeout(5000)
 
-        wait = WebDriverWait(driver, 20)
+            html = page.content()
 
-        # Aadhaar input
-        aadhaar_input = wait.until(
-            EC.presence_of_element_located((By.NAME, "aadhaar"))
-        )
-
-        aadhaar_input.send_keys(aadhaar)
-
-        # Mobile input
-        mobile_input = driver.find_element(By.NAME, "mobile")
-
-        mobile_input.send_keys(mobile)
-
-        # Search button
-        search_btn = driver.find_element(
-            By.XPATH,
-            "//button[contains(text(),'Search')]"
-        )
-
-        search_btn.click()
-
-        time.sleep(5)
-
-        html = driver.page_source
-
-        driver.quit()
+            browser.close()
 
         # Extract PAN
         pan_match = re.search(
@@ -90,12 +54,10 @@ def aadhaar_pan():
 
         if pan_match:
 
-            partial_pan = pan_match.group()
-
             return jsonify({
                 "status": True,
                 "aadhaar": aadhaar,
-                "partial_pan": partial_pan
+                "partial_pan": pan_match.group()
             })
 
         return jsonify({
@@ -112,4 +74,4 @@ def aadhaar_pan():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run()
